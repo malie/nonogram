@@ -46,9 +46,9 @@ instance Show Board where
       | (row, le) <- zip [1..h] left
       ])
    where
-    charForField Black   = "B"
-    charForField White   = "."
-    charForField Unknown = "_"
+    charForField Black   = "B "
+    charForField White   = ". "
+    charForField Unknown = "_ "
     left :: [String]
     left = padToSameLength (map (intercalate " " . map show) rowNums)
     leftPad :: String
