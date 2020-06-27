@@ -5,31 +5,32 @@ module Main
   )
 where
 
-import           Picosat                        ( solve
-                                                , solveAll
-                                                , Solution(..)
-                                                )
 import           Control.Monad                  ( forM_
                                                 , when
                                                 , zipWithM_
                                                 , replicateM
                                                 )
-import           Control.Monad.Trans.State.Strict
 import           Control.Monad.Trans.Class      ( lift )
-import           Data.List                      ( tails
-                                                , inits
-                                                , findIndex
-                                                )
-import           Test.Hspec
-import qualified Data.Set                      as S
-import           Data.Maybe                     ( fromMaybe )
-import           Debug.Trace                    ( trace )
+import           Control.Monad.Trans.State.Strict
 import           Data.Array                     ( Array
                                                 , listArray
                                                 , (!)
                                                 , bounds
                                                 )
+import           Data.List                      ( tails
+                                                , inits
+                                                , findIndex
+                                                )
+import qualified Data.Map                      as M
+import           Data.Maybe                     ( fromMaybe )
+import qualified Data.Set                      as S
+import           Debug.Trace                    ( trace )
+import           Picosat                        ( solve
+                                                , solveAll
+                                                , Solution(..)
+                                                )
 import           System.CPUTime                 ( getCPUTime )
+import           Test.Hspec
 
 import           Base
 
@@ -274,6 +275,15 @@ spec = describe "solve sat" $ do
         let sp = pick space s
         trace ("solution " ++ show (st, sp)) (return ())
 
+cnfStats = do
+  cs <- gets clauses
+  let histo = M.fromListWith (+) [ (length c, 1) | c <- cs ]
+  return
+    (  "num clauses: "
+    ++ show (length cs)
+    ++ "\nnum clauses by size:\n"
+    ++ unlines (map (("   " ++) . show) (M.toList histo))
+    )
 
 main = do
   runS $ do
@@ -291,11 +301,9 @@ main = do
     lift (print (empty givens))
     let board = Board givens fields
     lift (print board)
-    lift
-      (print
-        ( ("encoding ms", fromIntegral (mid - start) / (10 ^ 9))
-        , ("picosat ms" , fromIntegral (finished - mid) / (10 ^ 9))
-        )
-      )
+    stats <- cnfStats
+    lift (print ("encoding ms", fromIntegral (mid - start) / (10 ^ 9)))
+    lift (print ("picosat ms", fromIntegral (finished - mid) / (10 ^ 9)))
+    lift (putStrLn stats)
   return ()
 
