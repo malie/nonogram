@@ -9,10 +9,22 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 executable nonogram
-  main-is:             Nonogram.hs
+  main-is:             Solve.hs
+  other-modules:       Base
   build-depends:       base >=4.14 && <4.15,
                        text,
                        containers,
                        array,
                        hspec
+  default-language:    Haskell2010
+
+executable nonogram-sat
+  main-is:             SolveSat.hs
+  other-modules:       Base
+  build-depends:       base >=4.14 && <4.15,
+                       containers,
+                       hspec,
+                       array,
+                       picosat,
+                       transformers
   default-language:    Haskell2010
