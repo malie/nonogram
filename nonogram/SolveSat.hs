@@ -29,6 +29,7 @@ import           Data.Array                     ( Array
                                                 , (!)
                                                 , bounds
                                                 )
+import           System.CPUTime                 ( getCPUTime )
 
 import           Base
 
@@ -276,9 +277,12 @@ spec = describe "solve sat" $ do
 
 main = do
   runS $ do
-    let givens = n3
-    ar  <- nonogram givens
-    sol <- setSolution
+    let givens = n4
+    start    <- lift getCPUTime
+    ar       <- nonogram givens
+    mid      <- lift getCPUTime
+    sol      <- setSolution
+    finished <- lift getCPUTime
     let fieldsStr      = pick ar sol
     let Givens w h _ _ = givens
     let fields = listArray
@@ -286,5 +290,11 @@ main = do
           [ if c == 'x' then Black else White | c <- fieldsStr ]
     let board = Board givens fields
     lift (print board)
+    lift
+      (print
+        ( ("encoding ms", fromIntegral (mid - start) / (10 ^ 9))
+        , ("picosat ms" , fromIntegral (finished - mid) / (10 ^ 9))
+        )
+      )
   return ()
 
