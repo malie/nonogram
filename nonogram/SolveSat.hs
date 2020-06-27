@@ -288,6 +288,7 @@ main = do
     let fields = listArray
           ((1, 1), (w, h))
           [ if c == 'x' then Black else White | c <- fieldsStr ]
+    lift (print (empty givens))
     let board = Board givens fields
     lift (print board)
     lift
