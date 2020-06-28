@@ -1,3 +1,12 @@
+{-
+
+this experiment is in a pretty bad state:
+the unit tests work but applying the machinery to a full nonogram does NOT work...
+
+-}
+
+
+
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies          #-}
@@ -40,9 +49,19 @@ instance Pick Vec where
     where l v = if S.member v sol then 'x' else 'o'
 
 
+data Pos = BeforeBlock Int
+    | InBlock Int Int
+    | Done
+    deriving (Eq, Ord, Show)
+
 data S = S
     { nextId  :: Int
     , clauses :: [Clause]
+
+    -- | during the encoding every 'state' is only needed once per timestep
+    -- so, create them once and cache them here.
+    , states :: M.Map (Int, Pos) Var
+
     }
     deriving (Show)
 
@@ -50,7 +69,7 @@ runS f = runStateT f initialState
 evalS f = evalStateT f initialState
 
 -- `1` is reserved as a constantly false variable
-initialState = S 2 [[-1]]
+initialState = S 2 [[-1]] M.empty
 
 falseVar :: Var
 falseVar = 1
@@ -102,20 +121,6 @@ dumpClauses = do
 
 
 
-data Pos = BeforeBlock Int
-    | InBlock Int Int
-    | Done
-    | Fail
-    deriving (Eq, Show)
-
-buildStates :: [Int] -> [Pos]
-buildStates xs = recur xs 0
- where
-  recur [] block = [BeforeBlock block]
-  recur (x : xs) block =
-    (BeforeBlock block : map (InBlock block) [0 .. x - 1])
-      ++ recur xs (succ block)
-
 dumpCnfStats = do
   cs <- gets clauses
   let histo = M.fromListWith (+) [ (length c, 1) | c <- cs ]
@@ -128,10 +133,28 @@ dumpCnfStats = do
 
 
 spec = describe "match states" $ do
-  fit "can match" $ evalS $ do
+  it "can match" $ evalS $ do
     v@(Vec vs) <- vec 6
     walkStates vs [2, 2]
     dumpClauses
+    dumpCnfStats
+    allSetSolutionsDo $ \s -> do
+      let r = pick v s
+      trace ("cm " ++ show r) (return ())
+  -- [[2], [1], [4], [3], [3]] [[2], [1], [3], [1, 3], [1, 2]]
+  it "can match" $ evalS $ do
+    v@(Vec vs) <- vec 5
+    walkStates vs [1,2]
+    dumpClauses
+    dumpCnfStats
+    allSetSolutionsDo $ \s -> do
+      let r = pick v s
+      trace ("cm " ++ show r) (return ())
+  it "can match" $ evalS $ do
+    v@(Vec vs) <- vec 10
+    walkStates vs [2, 2, 2]
+    dumpClauses
+    dumpCnfStats
     allSetSolutionsDo $ \s -> do
       let r = pick v s
       trace ("cm " ++ show r) (return ())
@@ -160,49 +183,55 @@ spec = describe "match states" $ do
 
 implies a b = do
   clause [-a, b]
-  clause [a, -b]
+  -- clause [a, -b]
 
 andImplies a b c = do
   clause [-a, -b, c]
-  clause [a, -c]
-  clause [b, -c]
+  -- clause [a, -c]
+  -- clause [b, -c]
+
+-- verbose a = lift a
+verbose a = return ()
+
+uniq :: Ord a => [a] -> [a]
+uniq = S.toList . S.fromList
 
 
 walkStates :: [Var] -> [Int] -> StateT S IO ()
 walkStates fields0 nums = do
   iniv <- allocVar
   clause [iniv]
-  -- lift (print ("initial state", iniv))
-  finalStates <- recur (fields0 ++ [falseVar]) [(BeforeBlock 0, iniv)]
+  verbose (print ("initial state", iniv))
+  border <- allocVar
+  clause [-border]
+  finalStates <- recur (fields0 ++ [border]) [(BeforeBlock 0, iniv)]
   clause [ v | (Done, v) <- finalStates ]
-  sequence_ [ clause [-v] | (Fail, v) <- finalStates ]
   sequence_ [ clause [-v] | (BeforeBlock _, v) <- finalStates ]
   sequence_ [ clause [-v] | (InBlock _ _, v) <- finalStates ]
  where
+  recur :: [Var] -> [(Pos,Var)] -> StateT S IO [(Pos,Var)]
   recur []               states = return states
   recur (field : fields) states = do
-    -- lift (print ("recur", field, fields))
+    verbose (print ("recur", field, fields))
     nextStates <- mapM (m field) states
-    {-lift $ do
+    verbose $ do
         putStrLn ("next states: " ++ show (length (concat nextStates)))
-        mapM_ (\x -> putStrLn ("   " ++ show x)) nextStates -}
-    recur fields (concat nextStates)
+        mapM_ (\x -> putStrLn ("   " ++ show x)) nextStates
+    recur fields (uniq (concat nextStates))
 
   -- before block
   m field (BeforeBlock n, prev) = do
     -- if field is white we stay in the same state
-    wv <- allocVar
+    let ws = BeforeBlock n
+    wv <- createOrLookupStateVar field ws
     andImplies (-field) prev wv
 
     -- if field is black we enter the next block state
-    bv <- allocVar
+    let bs = InBlock n 1
+    bv <- createOrLookupStateVar field bs
     andImplies field prev bv
 
-    return [(BeforeBlock n, wv), (InBlock n 1, bv)]
-
-  -- overrun, one block too much (can this really happen?)
-  -- m field (InBlock n p, prev) | n >= length nums = do
-  --   clause [-prev]
+    return [(ws, wv), (bs, bv)]
 
   -- InBlock, unfinished
   m field (InBlock n p, prev) | p < nums !! n = do
@@ -210,38 +239,46 @@ walkStates fields0 nums = do
     clause [field, -prev]
 
     -- if field is black we step to the next InBlock state
-    bv <- allocVar
+    let bs = InBlock n (succ p)
+    bv <- createOrLookupStateVar field bs
     andImplies field prev bv
 
-    return [(InBlock n (succ p), bv)]
+    return [(bs, bv)]
 
   -- InBlock, finished
   m field (InBlock n p, prev) | p == nums !! n = do
-    -- if field is white we succeed this block, it's finished.
-    wv <- allocVar
+    -- if field is white we succeed this block or the whole sequence.
+    let ws = if n == length nums - 1 then Done else BeforeBlock (succ n)
+    wv <- createOrLookupStateVar field ws
     andImplies (-field) prev wv
 
     -- if field is black we fail this block: it's too long.
     clause [-field, -prev]
 
-    return
-      [if n == length nums - 1 then (Done, wv) else (BeforeBlock (succ n), wv)]
+    return [(ws, wv)]
 
   m field (Done, prev) = do
     -- if field is white we stay done
-    wv <- allocVar
+    let ws = Done
+    wv <- createOrLookupStateVar field ws
     andImplies (-field) prev wv
 
-    -- if field is black we did overrun
-    bv <- allocVar
+    -- if field is black we did overrun: fail
     clause [-field, -prev]
 
-    return [(Done, wv)]
-
-  -- sticky failure
-  m _ (Fail, v) = return [(Fail, v)]
+    return [(ws, wv)]
 
 
+
+createOrLookupStateVar :: Int -> Pos -> StateT S IO Var
+createOrLookupStateVar n p = do
+  s <- gets states
+  case M.lookup (n,p) s of
+    Just x -> return x
+    Nothing -> do
+      r <- allocVar
+      modify $ \s -> s { states = M.insert (n,p) r (states s) }
+      return r
 
 nonogram :: Givens -> StateT S IO Vec
 nonogram (Givens w h rowNums colNums) = do
@@ -266,7 +303,7 @@ extractCol array col = [ array ! (col, r) | r <- [1 .. h] ]
 
 main = do
   runS $ do
-    let givens = n4
+    let givens = n1
     start    <- lift getCPUTime
     ar       <- nonogram givens
     mid      <- lift getCPUTime
