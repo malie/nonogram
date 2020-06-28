@@ -1,5 +1,3 @@
--- -*- haskell-mode-stylish-haskell-path: "stylish-haskell" -*-
-
 module Base where
 
 import           Data.Array (Array, listArray, (!), (//))
@@ -24,11 +22,11 @@ data Board = Board
     }
 
 empty :: Givens -> Board
-empty givens@(Givens { nonogramWidth = w, nonogramHeight = h }) =
+empty givens@Givens { nonogramWidth = w, nonogramHeight = h } =
   Board givens (listArray ((1, 1), (w, h)) (repeat Unknown))
 
-place givens@(Givens { nonogramWidth = w, nonogramHeight = h }) gs =
-  Board givens ((listArray ((1, 1), (w, h)) (repeat Unknown)) // gs)
+place givens@Givens { nonogramWidth = w, nonogramHeight = h } gs =
+      Board givens (listArray ((1, 1), (w, h)) (repeat Unknown) // gs)
 
 instance Show Board where
   show (Board (Givens w h rowNums colNums) fs) = unlines
@@ -45,7 +43,7 @@ instance Show Board where
     charForField White   = ". "
     charForField Unknown = "_ "
     left :: [String]
-    left = padToSameLength (map (intercalate " " . map show) rowNums)
+    left = padToSameLength (map (unwords . map show) rowNums)
     leftPad :: String
     leftPad = replicate (1 + length (head left)) ' '
     ntop    = maximum (map length colNums)

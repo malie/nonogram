@@ -1,5 +1,3 @@
--- -*- haskell-mode-stylish-haskell-path: "stylish-haskell" -*-
-
 module Main (main) where
 
 import           Data.Array  (Array, listArray, (!), (//))
@@ -47,7 +45,7 @@ anyContradiction (Givens w h rowNums colNums) fs (col,row) =
     rowFields = [fs ! (c, row) | c <- [1..w]]
     ac fs nums = case detect ([White] ++ fs ++ [White]) [] True of
       Sure ns     -> -- trace (show ("ac", ns, nums))
-                     (ns /= nums)
+                     ns /= nums
       Possibly ns -> not (S.isSubsetOf (S.fromList ns) (S.fromList nums))
 
 
@@ -83,6 +81,6 @@ spec = describe "detec and count and anyContradiction" $ do
 
 main :: IO ()
 main = do
-  let e = (empty n2)
+  let e = empty n2
   mapM_ print (solutions e)
 

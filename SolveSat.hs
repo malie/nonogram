@@ -1,35 +1,24 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies          #-}
 module Main
   ( main
   )
 where
 
-import           Control.Monad                  ( forM_
-                                                , when
-                                                , zipWithM_
-                                                , replicateM
-                                                )
-import           Control.Monad.Trans.Class      ( lift )
+import           Control.Monad                    (forM_, replicateM, when,
+                                                   zipWithM_)
+import           Control.Monad.Trans.Class        (lift)
 import           Control.Monad.Trans.State.Strict
-import           Data.Array                     ( Array
-                                                , listArray
-                                                , (!)
-                                                , bounds
-                                                )
-import           Data.List                      ( tails
-                                                , inits
-                                                , findIndex
-                                                )
-import qualified Data.Map                      as M
-import           Data.Maybe                     ( fromMaybe )
-import qualified Data.Set                      as S
-import           Debug.Trace                    ( trace )
-import           Picosat                        ( solve
-                                                , solveAll
-                                                , Solution(..)
-                                                )
-import           System.CPUTime                 ( getCPUTime )
+import           Data.Array                       (Array, bounds, listArray,
+                                                   (!))
+import           Data.List                        (findIndex, inits, tails)
+import qualified Data.Map                         as M
+import           Data.Maybe                       (fromMaybe)
+import qualified Data.Set                         as S
+import           Debug.Trace                      (trace)
+import           Picosat                          (Solution (..), solve,
+                                                   solveAll)
+import           System.CPUTime                   (getCPUTime)
 import           Test.Hspec
 
 import           Base
@@ -48,7 +37,7 @@ class Pick a where
 instance Pick Number where
   type P Number = Int
   pick (Number vars) sol =
-    fromMaybe (error "bad") (findIndex (flip S.member sol) vars)
+    fromMaybe (error "bad") (findIndex (`S.member` sol) vars)
 
 instance Pick Arena where
   type P Arena = String
@@ -57,9 +46,10 @@ instance Pick Arena where
 
 
 data S = S
-  { nextId :: Int
-  , clauses :: [Clause] }
-  deriving (Show)
+    { nextId  :: Int
+    , clauses :: [Clause]
+    }
+    deriving (Show)
 
 runS f = runStateT f initialState
 evalS f = evalStateT f initialState
@@ -199,7 +189,7 @@ addNumbers (Number xs) (Number ys) = do
     [ clause [-x, -y, resary ! (xnum + ynum)]
     -- a&b -> c
     -- -(a&b) v c
-    -- -a v -b v c    
+    -- -a v -b v c
     | (x, xnum) <- zip xs [0 ..]
     , (y, ynum) <- zip ys [0 ..]
     ]
@@ -216,7 +206,9 @@ foldTree f xs  = pass xs >>= foldTree f
   pass x = return x
 
 
-data T a = T (T a) (T a) | L a deriving (Show)
+data T a = T (T a) (T a)
+    | L a
+    deriving (Show)
 test = foldTree (\a b -> return (T a b)) (map L [3, 4, 5, 6, 78])
 
 spec = describe "solve sat" $ do
@@ -224,8 +216,7 @@ spec = describe "solve sat" $ do
     let lim = 5
     r <- evalS $ do
       a <- number lim
-      s <- setSolution
-      return (pick a s)
+      pick a <$> setSolution
     (r >= 0 && r < lim) `shouldBe` True
 
   it "can alloc vars 2" $ do
