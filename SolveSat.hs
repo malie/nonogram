@@ -24,8 +24,8 @@ import           Test.Hspec
 import           Base
 
 type Var = Int
-newtype Number = Number [Var] deriving (Eq, Show)
-newtype Arena = Arena [Var] deriving (Eq, Show)
+newtype Number = Number [Var]  deriving (Eq, Show)
+newtype Vec = Vec [Var] deriving (Eq, Show)
 type Clause = [Int]
 
 type SetSolution = S.Set Int
@@ -39,11 +39,13 @@ instance Pick Number where
   pick (Number vars) sol =
     fromMaybe (error "bad") (findIndex (`S.member` sol) vars)
 
-instance Pick Arena where
-  type P Arena = String
-  pick (Arena vars) sol = map l vars
+instance Pick Vec where
+  type P Vec = String
+  pick (Vec vars) sol = map l vars
     where l v = if S.member v sol then 'x' else 'o'
 
+
+numberVars (Number xs) = xs
 
 data S = S
     { nextId  :: Int
@@ -106,8 +108,8 @@ exactlyOne xs = do
   clause xs
   mapM_ clause [ [-a, -b] | (a : rest) <- tails xs, b <- rest ]
 
-arena :: Int -> StateT S IO Arena
-arena n = Arena <$> allocVars n
+vec :: Int -> StateT S IO Vec
+vec n = Vec <$> allocVars n
 
 clause :: [Int] -> StateT S IO ()
 clause lits = do
@@ -123,13 +125,13 @@ lessThanConstraint (Number xs) (Number ys) =
 
 allFalse = mapM_ (\x -> clause [-x])
 
-blockConstraint :: Number -> Int -> Arena -> StateT S IO ()
-blockConstraint start@(Number startVars) len (Arena arena) = do
+blockConstraint :: Number -> Int -> Vec -> StateT S IO ()
+blockConstraint start@(Number startVars) len (Vec vec) = do
   let (sa, sb) = splitAt (length startVars - len + 1) startVars
   allFalse sb
   sequence_
     [ pr st 0 (take (len + 2) ar)
-    | (st, ar) <- zip sa (tails ([falseVar] ++ arena ++ [falseVar]))
+    | (st, ar) <- zip sa (tails ([falseVar] ++ vec ++ [falseVar]))
     ]
  where
   pr _ i _ | i == len + 2                   = return ()
@@ -141,9 +143,9 @@ blockConstraint start@(Number startVars) len (Arena arena) = do
     pr st (succ i) rs
 
 
-nonogram :: Givens -> StateT S IO Arena
+nonogram :: Givens -> StateT S IO Vec
 nonogram (Givens w h rowNums colNums) = do
-  ar@(Arena fields) <- arena (w * h)
+  ar@(Vec fields) <- vec (w * h)
   let array = listArray ((1, 1), (w, h)) fields
   buildConstraints (extractRow array) rowNums w
   buildConstraints (extractCol array) colNums h
@@ -154,12 +156,21 @@ nonogram (Givens w h rowNums colNums) = do
     -- allocate a "start position" for every given number
     startPositions <- replicateM (length givenNums) (number size)
     growingList startPositions
+    -- minimalDistance givenNums startPositions
+    -- minimalDistance (reverse givenNums)
+    --                 (reverse (map reverseNumbers startPositions))
+
+    shrinkRange givenNums startPositions
+    shrinkRange (reverse givenNums) (reverse (map reverseNumbers startPositions))
+
     let fs = extract coord
-    zipWithM_ (\start givenNum -> blockConstraint start givenNum (Arena fs))
+    zipWithM_ (\start givenNum -> blockConstraint start givenNum (Vec fs))
               startPositions
               givenNums
     let s = sum givenNums
-    cardinality (Arena fs) s
+    cardinality (Vec fs) s
+
+reverseNumbers (Number xs) = Number (reverse xs)
 
 extractRow array row = [ array ! (c, row) | c <- [1 .. w] ]
   where (_, (w, _)) = bounds array
@@ -171,7 +182,31 @@ extractCol array col = [ array ! (col, r) | r <- [1 .. h] ]
 growingList :: [Number] -> StateT S IO ()
 growingList xs = zipWithM_ lessThanConstraint xs (tail xs)
 
-cardinality (Arena xs) n = do
+-- | every list element is smaller than the next one.
+-- Additionally the distance is at list dist
+minimalDistance :: [Int] -> [Number] -> StateT S IO ()
+minimalDistance dist xs = zip3WithM_ f xs (tail xs) dist
+  where f x y d = do
+          let yd = subtractConst y d
+          clause (numberVars yd) -- at least one of them...
+          -- exactlyOne (numberVars yd)
+          lessThanConstraint x yd
+          allFalse (allLessThan y d)
+
+-- | shrink range of vars
+shrinkRange :: [Int] -> [Number] -> StateT S IO ()
+shrinkRange dist xs = f xs dist 0
+  where
+    f [] _ _ = return ()
+    f (x:xs) (d:dist) sum = do
+          allFalse (take sum (numberVars x))
+          f xs dist (sum+d+1)
+
+zip3WithM_ :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m ()
+zip3WithM_ a (x:xs) (y:ys) (z:zs) = a x y z >> zip3WithM_ a xs ys zs
+zip3WithM_ _ _ _ _                = return ()
+
+cardinality (Vec xs) n = do
   numbers <- mapM boolToNumber xs
   count   <- foldTree addNumbers numbers
   numberEqual count n
@@ -194,6 +229,12 @@ addNumbers (Number xs) (Number ys) = do
     , (y, ynum) <- zip ys [0 ..]
     ]
   return res
+
+subtractConst :: Number -> Int -> Number
+subtractConst (Number xs) n = Number (drop n xs)
+
+allLessThan :: Number -> Int -> [Var]
+allLessThan (Number xs) n = take n xs
 
 foldTree :: (a -> a -> StateT S IO a) -> [a] -> StateT S IO a
 foldTree _ [x] = return x
@@ -246,7 +287,7 @@ spec = describe "solve sat" $ do
 
   it "can encode cardinality constraints" $ evalS $ do
     let card = 3
-    a <- arena 7
+    a <- vec 7
     cardinality a card
     -- dumpClauses
     allSetSolutionsDo $ \s -> do
@@ -258,7 +299,7 @@ spec = describe "solve sat" $ do
   it "can encode black blocks" $ do
     evalS $ do
       start <- number 5
-      space <- arena 5
+      space <- vec 5
       blockConstraint start 3 space
       dumpClauses
       allSetSolutionsDo $ \s -> do
